@@ -1,0 +1,292 @@
+library(dplyr)
+library(stringr)
+library(forecast)
+library(ggplot2)
+library(reshape2)
+library(lubridate)
+library(ineq)
+
+options(scipen = 999)
+
+load("~/caja de jubilaciones/cambios de ley/reforma/pagoid.rda")
+load("~/caja de jubilaciones/cambios de ley/reforma/pago2020.rda")
+load("~/caja de jubilaciones/cambios de ley/reforma/pago2019.rda")
+load("~/caja de jubilaciones/cambios de ley/reforma/minimos.rda")
+load("~/caja de jubilaciones/cambios de ley/reforma/altas.rda")
+load("sectores.rda")
+
+pagos2019$PAGCALHAB <- gsub("[,]", ".", pagos2019$PAGCALHAB)
+pagos2019$PAGCALHAB <- as.numeric(pagos2019$PAGCALHAB)
+
+pagos2019$CALNUCDUR <- gsub("[,]", ".", pagos2019$CALNUCDUR)
+pagos2019$CALNUCDUR <- as.numeric(pagos2019$CALNUCDUR)
+
+pagos2019$PAGCALPRES <- as.numeric(pagos2019$PAGCALPRES)
+
+pagos2019$PAGCALPORP <- gsub("[,]", ".", pagos2019$PAGCALPORP)
+pagos2019$PAGCALPORP <- as.numeric(pagos2019$PAGCALPORP)
+
+pagos2019$PAGCALPORD <- gsub("[,]", ".", pagos2019$PAGCALPORD)
+pagos2019$PAGCALPORD <- as.numeric(pagos2019$PAGCALPORD)
+
+altas$JBSOLFEINI <- as.Date(altas$JBSOLFEINI)
+
+x <- as.Date(paste(rep(2019,12),"-",1:12,"-",rep(01,12), sep = ""))
+y <- as.Date(paste(rep(2020,6),"-",1:6,"-",rep(01,6), sep = ""))
+pagoid$fecha <- c(x,y)
+
+
+sum(pagos2019[pagos2019$PAGCALPRES<200,"PAGCALHAB"])
+sum(pagos2019[pagos2019$PAGCALPRES<200,"CALNUCDUR"])
+(sum(pagos2019[pagos2019$PAGCALPRES<200,"PAGCALHAB"])-sum(pagos2019[pagos2019$PAGCALPRES<200,"CALNUCDUR"]))/1000000
+
+
+
+pagos2019 <- merge(pagos2019, altas, by.x = "PAGCALSOLN", by.y = "JBSOLNUMER", all.x = T)
+pagos2019$altas <- ifelse(is.na(pagos2019$JBSOLFEINI)==T, 0,1)
+pagos2019$PAGCALPORP <- ifelse(pagos2019$altas==1, 0.7, pagos2019$PAGCALPORP)
+
+pagos2019$pagoshipo <- rep(0, nrow(pagos2019))
+
+pagos2019$pagoshipo <- ifelse(pagos2019$PAGCALPRES<200, pagos2019$CALNUCDUR, pagos2019$pagoshipo)
+pagos2019$pagoshipo <- ifelse(c(pagos2019$PAGCALPRES<200 & pagos2019$PAGCALPAGO < 4942 & pagos2019$pagoshipo < 10000)
+                              , 10000, pagos2019$pagoshipo)
+pagos2019$pagoshipo <- ifelse(c(pagos2019$PAGCALPRES<200 & pagos2019$PAGCALPAGO == 4942 & pagos2019$pagoshipo < 11500)
+                              , 11500, pagos2019$pagoshipo)
+pagos2019$pagoshipo <- ifelse(c(pagos2019$PAGCALPRES<200 & pagos2019$PAGCALPAGO == 4955 & pagos2019$pagoshipo < 13000)
+                              , 13000, pagos2019$pagoshipo)
+
+pagos2019$pagoshipo <- ifelse(c(pagos2019$PAGCALPRES>200 & pagos2019$PAGCALPRES<300)
+                              ,pagos2019$CALNUCDUR*pagos2019$PAGCALPORP*pagos2019$PAGCALPORD, pagos2019$pagoshipo)
+# pagos2019$pagoshipo <- ifelse(c(pagos2019$PAGCALPRES>200 & pagos2019$PAGCALPRES<300 & 
+#                                pagos2019$PAGCALPAGO < 4942 & pagos2019$pagoshipo < 10000)
+#                              , 10000, pagos2019$pagoshipo)
+# pagos2019$pagoshipo <- ifelse(c(pagos2019$PAGCALPRES>200 & pagos2019$PAGCALPRES<300 & 
+#                                pagos2019$PAGCALPAGO == 4942 & pagos2019$pagoshipo < 11500)
+#                              , 11500, pagos2019$pagoshipo)
+# pagos2019$pagoshipo <- ifelse(c(pagos2019$PAGCALPRES>200 & pagos2019$PAGCALPRES<300 & 
+#                                pagos2019$PAGCALPAGO == 4955 & pagos2019$pagoshipo < 13000)
+#                              , 13000, pagos2019$pagoshipo)
+
+pagos2019$pagoshipo <- ifelse(pagos2019$PAGCALPRES>300, pagos2019$PAGCALHAB, pagos2019$pagoshipo)
+
+pagos2019$diferencia <- pagos2019$PAGCALHAB-pagos2019$pagoshipo
+pagos2019$pagoshipo <- ifelse(pagos2019$diferencia<0, pagos2019$PAGCALHAB, pagos2019$pagoshipo)
+pagos2019$diferencia2 <- pagos2019$PAGCALHAB-pagos2019$pagoshipo
+
+#Sin reforma vs con reforma
+sum(pagos2019$PAGCALHAB)
+sum(pagos2019$pagoshipo)
+
+(sum(pagos2019$PAGCALHAB)-sum(pagos2019$pagoshipo))/1000000
+
+#ahorro por tipo de beneficio
+lala <- pagos2019 %>%
+  group_by(PAGCALPRES) %>%
+  summarise(sum(PAGCALHAB), sum(pagoshipo))
+
+lala$asd <- (lala$`sum(PAGCALHAB)`-lala$`sum(pagoshipo)`)/1000000
+
+#costo mensual
+borrador <- pagos2019[,c(2,5,12)]
+borrador <- merge(borrador, pagoid[,c(1,3)], by.x="PAGCALPAGO", by.y = "PAGOID", all.x = T)
+
+borrador <- borrador %>%
+  group_by(fecha) %>%
+  summarise(sum(PAGCALHAB)/1000000, sum(pagoshipo)/1000000)
+
+colnames(borrador) <- c("Fecha", "Sin reforma", "Con reforma")
+lala <- borrador
+lala$Ahorro <- borrador$`Sin reforma`-borrador$`Con reforma`
+lala <- lala[,c(1,4)]
+borrador <- melt(borrador, id="Fecha")
+borrador$Fecha <- as.Date(borrador$Fecha)
+
+windows()
+paleta <- c("#009E73", "#D55E00","#F0E442", "#0072B2", "#333333")
+ggplot(borrador, aes(x=Fecha, y=value, colour=variable, group=variable))+
+  geom_line(size=1)+
+  scale_y_continuous(name = "Monto (en millones de pesos)", breaks = c(seq(0, 6000, 500)))+
+  scale_x_date(date_breaks = "month")+
+  ggtitle("Erogaciones acumuladas de 2019 según situación sin o con reforma")
+
+ggplot(lala, aes(x=Fecha, y=Ahorro))+
+  geom_line()+
+  scale_y_continuous(name = "Monto (en millones de pesos)", breaks = c(seq(0, 400, 25)))+
+  scale_x_date(date_breaks = "month")+
+  ggtitle("Ahorro de la reforma")
+
+
+
+
+
+#Distribución
+borrador <- pagos2019[,c(2,5,12)]
+borrador <- merge(borrador, pagoid[,c(1,3)], by.x="PAGCALPAGO", by.y = "PAGOID", all.x = T)
+borrador <- borrador[,c(2:4)]
+colnames(borrador) <- c( "Sin reforma", "Con reforma","Fecha")
+
+ineq(borrador$`Sin reforma`,type="Gini");ineq(borrador$`Con reforma`,type="Gini")
+
+lala <- borrador
+borrador <- melt(borrador, id="Fecha")
+borrador$Fecha <- as.Date(borrador$Fecha)
+
+ggplot(borrador, aes(value, colour=variable, group=variable))+
+  geom_density(position="identity",  alpha=0.5)+
+  scale_y_continuous(name = "Densidad", labels=function(n){format(n, scientific = FALSE)})+
+  scale_x_continuous(name = "Haberes", labels = scales::dollar)+
+  ggtitle("Función de densidad de los haberes de abril")
+
+ggplot(borrador[borrador$value<200000,], aes(value, colour=variable, group=variable))+
+  geom_density(position="identity",  alpha=0.5)+
+  scale_y_continuous(name = "Densidad", labels=function(n){format(n, scientific = FALSE)})+
+  scale_x_continuous(name = "Haberes", labels = scales::dollar)+
+  ggtitle("Función de densidad de los haberes anuales según real y contrafáctico (cortado en $200.000)")+
+  theme(legend.position="bottom") 
+
+ggplot(borrador, aes(x=value, color=variable, fill=variable)) +
+  geom_histogram(position="identity", binwidth=25000,  alpha=0.5) + 
+  scale_y_continuous(name = "Cantidad", labels=function(n){format(n, scientific = FALSE)})+
+  scale_x_continuous(name = "Haberes", labels = scales::dollar) +
+  ggtitle("Histograma de los haberes de abril") 
+
+ggplot(borrador[borrador$value<200000,], aes(x=value, color=variable, fill=variable)) +
+  geom_histogram(position="identity", binwidth=25000,  alpha=0.5) + 
+  scale_y_continuous(name = "Cantidad", labels=function(n){format(n, scientific = FALSE)})+
+  scale_x_continuous(name = "Haberes", labels = scales::dollar) +
+  ggtitle("Histograma de los haberes anuales según real y contrafáctico (cortado en $200.000)")+
+  theme(legend.position="bottom")
+
+ggplot(borrador, aes(x=value, color=variable, fill=variable)) +
+  geom_histogram(aes(y = ..density..), position="identity", binwidth=1000,  alpha=0.5) + 
+  geom_density(fill = "#000000", alpha = 0.05)+
+  scale_y_continuous(name = "Densidad", labels=function(n){format(n, scientific = FALSE)})+
+  scale_x_continuous(name = "Haberes", labels = scales::dollar) +
+  ggtitle("Densidad e histograma de los haberes anuales según real y contrafáctico") +
+  theme(legend.position="bottom")
+
+
+
+quantile(lala$`Sin reforma`, prob=seq(0, 1, length = 11));quantile(lala$`Con reforma`, prob=seq(0, 1, length = 11));quantile(lala$`Sin reforma`, prob=seq(0, 1, length = 11))-quantile(lala$`Con reforma`, prob=seq(0, 1, length = 11))
+
+lala$diferencia <- lala$`Sin reforma`-lala$`Con reforma`
+summary(lala$diferencia)
+
+sum(lala[lala$`Sin reforma`>200000,4])
+sum(lala[lala$`Sin reforma`>200000,4])/nrow(lala[lala$`Sin reforma`>200000,])
+nrow(lala[lala$`Sin reforma`>200000,])
+
+ggplot(lala[lala$diferencia<15000,], aes(diferencia))+
+  geom_density()+
+  scale_y_continuous(name = "Densidad", labels=function(n){format(n, scientific = FALSE)})+
+  scale_x_continuous(name = "Haberes", labels = scales::dollar)+
+  ggtitle("Función de densidad de las quitas hipotéticas sobre los haberes")
+
+ggplot(lala[lala$diferencia<15000,], aes(diferencia)) +
+  geom_histogram(aes(y = ..density..), alpha = 0.6, fill = "#000000", binwidth = 1000) +
+  geom_density(fill = "#0072B2", alpha = 0.2)+
+  scale_y_continuous(name = "Cantidad", labels=function(n){format(n, scientific = FALSE)})+
+  scale_x_continuous(name = "Haberes", labels = scales::dollar, breaks = c(seq(0,15000,1000))) +
+  ggtitle("Histograma de las quitas hipotéticas sobre los haberes (cortado en $15.000)") 
+
+lala$porcentual <- lala$diferencia/lala$`Sin reforma` 
+
+ggplot(lala[lala$porcentual<0.15,], aes(porcentual)) +
+  geom_histogram( binwidth = 0.025) +
+  scale_y_continuous(name = "Cantidad", labels=function(n){format(n, scientific = FALSE)})+
+  scale_x_continuous(name = "Porcentaje del haber", labels = scales::percent, breaks = c(seq(0,0.15,0.025))) +
+  ggtitle("Histograma de las quitas porcentuales sobre los haberes") 
+
+lala$porcentual <- lala$porcentual*100
+summary(lala$porcentual)
+
+########## Perjudicados
+borrador <- pagos2019[,c(1,3,5,9,12)]
+borrador$diferencia <- borrador$PAGCALHAB-borrador$pagoshipo
+borrador$difpor <- borrador$diferencia*100/borrador$PAGCALHAB
+borrador <- merge(borrador, sectores2[,c(1,3)], by.x = "PAGCALSECT" ,by.y="SECTID")
+
+nrow(as.data.frame(table(borrador$PAGCALSOLN))) #cantidad de afectados
+lala <- borrador %>%
+  group_by(RACSCODIGO) %>%
+  summarise(sum(diferencia), sum(diferencia)/length(diferencia), mean(PAGCALHAB))
+#################
+
+load("C:/Users/Usuario/Documents/caja de jubilaciones/cambios de ley/reforma/b.Rda")
+lala <- as.data.frame(b)
+
+x <- as.Date(paste(rep(2016,12),"-",1:12,"-",rep(01,12), sep = ""))
+x <- c(x,as.Date(paste(rep(2017,12),"-",1:12,"-",rep(01,12), sep = "")))
+x <- c(x,as.Date(paste(rep(2018,12),"-",1:12,"-",rep(01,12), sep = "")))
+x <- c(x,as.Date(paste(rep(2019,12),"-",1:12,"-",rep(01,12), sep = "")))
+x <- c(x,as.Date(paste(rep(2020,6),"-",1:6,"-",rep(01,6), sep = "")))
+lala$fecha <- x
+lala$hipo <- lala$x
+
+borrador <- pagos2019[,c(2,5,12)]
+borrador <- merge(borrador, pagoid[,c(1,3)], by.x="PAGCALPAGO", by.y = "PAGOID", all.x = T)
+borrador <- borrador %>%
+  group_by(fecha) %>%
+  summarise(sum(PAGCALHAB)/1000000, sum(pagoshipo)/1000000)
+colnames(borrador) <- c("Fecha", "Sin reforma", "Con reforma")
+
+x <- borrador[borrador$Fecha<"2020-01-01"& borrador$Fecha>"2018-12-31",]
+x$porcentaje <- lala[lala$fecha<"2020-01-01"& lala$fecha>"2018-12-31",1]/100
+x$recaudacion <- x$`Sin reforma`/x$porcentaje
+x$porcentajeconr <- x$`Con reforma`/x$recaudacion
+
+lala[lala$fecha<"2020-01-01"& lala$fecha>"2018-12-31",3] <- x$porcentajeconr*100
+borrador <- lala[lala$fecha<"2020-01-01",]
+
+data1 <- ts(borrador$x[12:nrow(borrador)], frequency=12, start=c(2016,12))
+b1 <- auto.arima(data1)
+summary(b1)
+b1 <- forecast(b1,192)
+b1
+
+data2 <- ts(borrador$hipo[12:nrow(borrador)], frequency=12, start=c(2016,12))
+b2 <- Arima(data2, order = c(3,1,0), include.drift=TRUE)
+summary(b2)
+b2 <- forecast(b2,192)
+b2
+b1 <- as.data.frame(b1)
+b2 <-  as.data.frame(b2)
+
+data1 <- as.data.frame(c(b1[,1], b2[,1]))
+
+x <- as.Date(paste(rep(2020,12),"-",1:12,"-",rep(01,12), sep = ""))
+x <- c(x,as.Date(paste(rep(2021,12),"-",1:12,"-",rep(01,12), sep = "")))
+x <- c(x,as.Date(paste(rep(2022,12),"-",1:12,"-",rep(01,12), sep = "")))
+x <- c(x,as.Date(paste(rep(2023,12),"-",1:12,"-",rep(01,12), sep = "")))
+x <- c(x,as.Date(paste(rep(2024,12),"-",1:12,"-",rep(01,12), sep = "")))
+x <- c(x,as.Date(paste(rep(2025,12),"-",1:12,"-",rep(01,12), sep = "")))
+x <- c(x,as.Date(paste(rep(2026,12),"-",1:12,"-",rep(01,12), sep = "")))
+x <- c(x,as.Date(paste(rep(2027,12),"-",1:12,"-",rep(01,12), sep = "")))
+x <- c(x,as.Date(paste(rep(2028,12),"-",1:12,"-",rep(01,12), sep = "")))
+x <- c(x,as.Date(paste(rep(2029,12),"-",1:12,"-",rep(01,12), sep = "")))
+x <- c(x,as.Date(paste(rep(2030,12),"-",1:12,"-",rep(01,12), sep = "")))
+x <- c(x,as.Date(paste(rep(2031,12),"-",1:12,"-",rep(01,12), sep = "")))
+x <- c(x,as.Date(paste(rep(2032,12),"-",1:12,"-",rep(01,12), sep = "")))
+x <- c(x,as.Date(paste(rep(2033,12),"-",1:12,"-",rep(01,12), sep = "")))
+x <- c(x,as.Date(paste(rep(2034,12),"-",1:12,"-",rep(01,12), sep = "")))
+x <- c(x,as.Date(paste(rep(2035,12),"-",1:12,"-",rep(01,12), sep = "")))
+
+
+data1$Fecha <- x
+colnames(data1) <- c("Deficit sobre recaudación", "Fecha")
+
+data1$Variable <- c(rep("Sin reforma", 192), rep("Con reforma", 192))
+
+x <- seq(0,1,1/191)
+x <- x*18
+data1[193:nrow(data1), 1] <- data1[193:nrow(data1), 1]-x
+
+data1$`Deficit sobre recaudación` <- data1$`Deficit sobre recaudación`/100
+ggplot(data1, aes(x=Fecha, y=`Deficit sobre recaudación`, colour=Variable, group=Variable))+
+  geom_line(size=0)+
+  scale_y_continuous(name = "Porcentaje déficit sobre recaudación",  labels = scales::percent)+
+  scale_x_date(date_breaks = "year")+
+  ggtitle("Predicción sobre el pocentaje déficit/recaudación según la adopción de la reforma") + 
+  geom_smooth(method = "loess")+ 
+  theme(legend.position="bottom")

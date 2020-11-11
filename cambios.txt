@@ -1,0 +1,15 @@
+descuentos:
+caimin nuevos minimos
+
+
+
+básico:
+pago-calnucdur nucleo duro
+pagcalhab bolsillo
+pagcalhab = pagcal997*pordist*porpen
+altas pagcalcal997 con 120 periodos
+
+
+cambio porpen
+todas las nuevas altas nacen con porpen = 0.7
+
